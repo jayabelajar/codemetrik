@@ -40,6 +40,14 @@ struct HistoryItem {
     avg_maintainability: f64,
 }
 
+#[derive(Serialize)]
+struct HistoryDetail {
+    id: i64,
+    analyzed_at: String,
+    project_path: String,
+    result: AnalysisResult,
+}
+
 fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data = app
         .path()
@@ -59,32 +67,60 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
             project_path TEXT NOT NULL,
             scanned_files INTEGER NOT NULL,
             avg_complexity REAL NOT NULL,
-            avg_maintainability REAL NOT NULL
+            avg_maintainability REAL NOT NULL,
+            result_json TEXT
         )",
         [],
     )
     .map_err(|e| format!("Gagal inisialisasi table history: {e}"))?;
+    conn.execute(
+        "ALTER TABLE analysis_history ADD COLUMN result_json TEXT",
+        [],
+    )
+    .ok();
     Ok(conn)
 }
 
 fn save_history(app: &AppHandle, source_label: &str, result: &AnalysisResult) -> Result<(), String> {
     let conn = open_db(app)?;
+    let result_json =
+        serde_json::to_string(result).map_err(|e| format!("Gagal serialize result history: {e}"))?;
     conn.execute(
-        "INSERT INTO analysis_history (project_path, scanned_files, avg_complexity, avg_maintainability)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO analysis_history (project_path, scanned_files, avg_complexity, avg_maintainability, result_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             source_label,
             result.summary.scanned_files,
             result.summary.avg_complexity,
-            result.summary.avg_maintainability
+            result.summary.avg_maintainability,
+            result_json
         ],
     )
     .map_err(|e| format!("Gagal menyimpan history: {e}"))?;
     Ok(())
 }
 
+fn resolve_analyzer_path() -> Result<PathBuf, String> {
+    let candidates = [
+        PathBuf::from("analyzer").join("analyze.py"),
+        PathBuf::from("..").join("analyzer").join("analyze.py"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("analyzer")
+            .join("analyze.py"),
+    ];
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err("File analyzer/analyze.py tidak ditemukan.".to_string())
+}
+
 fn run_analyzer_path(path: &str) -> Result<AnalysisResult, String> {
-    let analyzer_path = PathBuf::from("analyzer").join("analyze.py");
+    let analyzer_path = resolve_analyzer_path()?;
 
     let output = Command::new("python")
         .arg(&analyzer_path)
@@ -94,7 +130,7 @@ fn run_analyzer_path(path: &str) -> Result<AnalysisResult, String> {
         .or_else(|_| {
             Command::new("py")
                 .arg("-3")
-                .arg("analyzer/analyze.py")
+                .arg(&analyzer_path)
                 .arg("--path")
                 .arg(path)
                 .output()
@@ -112,7 +148,7 @@ fn run_analyzer_path(path: &str) -> Result<AnalysisResult, String> {
 }
 
 fn run_analyzer_snippet(language: &str, code: &str) -> Result<AnalysisResult, String> {
-    let analyzer_path = PathBuf::from("analyzer").join("analyze.py");
+    let analyzer_path = resolve_analyzer_path()?;
 
     let output = Command::new("python")
         .arg(&analyzer_path)
@@ -125,7 +161,7 @@ fn run_analyzer_snippet(language: &str, code: &str) -> Result<AnalysisResult, St
         .or_else(|_| {
             Command::new("py")
                 .arg("-3")
-                .arg("analyzer/analyze.py")
+                .arg(&analyzer_path)
                 .arg("--snippet")
                 .arg(language)
                 .stdin(std::process::Stdio::piped())
@@ -207,6 +243,61 @@ fn get_analysis_history(app: AppHandle, limit: Option<u32>) -> Result<Vec<Histor
     Ok(result)
 }
 
+#[tauri::command]
+fn get_history_detail(app: AppHandle, id: i64) -> Result<HistoryDetail, String> {
+    let conn = open_db(&app)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, analyzed_at, project_path, result_json
+             FROM analysis_history
+             WHERE id = ?1",
+        )
+        .map_err(|e| format!("Gagal query detail history: {e}"))?;
+
+    let mut rows = stmt
+        .query([id])
+        .map_err(|e| format!("Gagal eksekusi query detail history: {e}"))?;
+
+    let row = rows
+        .next()
+        .map_err(|e| format!("Gagal membaca row detail history: {e}"))?
+        .ok_or_else(|| "History tidak ditemukan".to_string())?;
+
+    let result_json: Option<String> = row
+        .get(3)
+        .map_err(|e| format!("Gagal membaca result_json history: {e}"))?;
+    let result_json = result_json.ok_or_else(|| "Detail history tidak tersedia untuk data lama".to_string())?;
+    let result: AnalysisResult = serde_json::from_str(&result_json)
+        .map_err(|e| format!("Gagal parse detail history: {e}"))?;
+
+    Ok(HistoryDetail {
+        id: row.get(0).map_err(|e| format!("Gagal membaca id history: {e}"))?,
+        analyzed_at: row
+            .get(1)
+            .map_err(|e| format!("Gagal membaca analyzed_at history: {e}"))?,
+        project_path: row
+            .get(2)
+            .map_err(|e| format!("Gagal membaca project_path history: {e}"))?,
+        result,
+    })
+}
+
+#[tauri::command]
+fn delete_history_item(app: AppHandle, id: i64) -> Result<(), String> {
+    let conn = open_db(&app)?;
+    conn.execute("DELETE FROM analysis_history WHERE id = ?1", [id])
+        .map_err(|e| format!("Gagal hapus history item: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_history(app: AppHandle) -> Result<(), String> {
+    let conn = open_db(&app)?;
+    conn.execute("DELETE FROM analysis_history", [])
+        .map_err(|e| format!("Gagal hapus semua history: {e}"))?;
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
@@ -214,7 +305,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             analyze_path,
             analyze_snippet,
-            get_analysis_history
+            get_analysis_history,
+            get_history_detail,
+            delete_history_item,
+            clear_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

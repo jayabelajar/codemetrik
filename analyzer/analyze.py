@@ -11,9 +11,9 @@ from radon.complexity import cc_visit
 from radon.metrics import h_visit
 from radon.raw import analyze as raw_analyze
 
-SUPPORTED_EXTENSIONS = {".py", ".js", ".ts"}
+SUPPORTED_EXTENSIONS = {".py", ".js", ".ts", ".php"}
 SKIP_DIRS = {"node_modules", ".git", "dist", "build", ".venv", "venv"}
-LANG_TO_EXT = {"python": ".py", "javascript": ".js", "typescript": ".ts"}
+LANG_TO_EXT = {"python": ".py", "javascript": ".js", "typescript": ".ts", "php": ".php"}
 
 
 def find_source_files(root: str) -> List[str]:
@@ -110,7 +110,7 @@ def analyze_path(target_path: str) -> Dict:
     if os.path.isfile(abs_path):
         ext = os.path.splitext(abs_path)[1].lower()
         if ext not in SUPPORTED_EXTENSIONS:
-            raise ValueError("File extension tidak didukung. Gunakan .py, .js, atau .ts")
+            raise ValueError("File extension tidak didukung. Gunakan .py, .js, .ts, atau .php")
         root = os.path.dirname(abs_path)
         return build_payload([analyze_file(abs_path, root)])
 

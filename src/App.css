@@ -113,9 +113,19 @@ button {
   color: #ffffff;
 }
 
+.danger {
+  background: #b91c1c;
+  color: #ffffff;
+}
+
 .ghost {
   background: #e2e8f0;
   color: #0f172a;
+}
+
+.small {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 button:disabled {
@@ -151,6 +161,13 @@ button:disabled {
   padding: 8px;
 }
 
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .trend-head {
   display: flex;
   justify-content: space-between;
@@ -163,6 +180,12 @@ button:disabled {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
+}
+
+.history-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .bar-wrap {

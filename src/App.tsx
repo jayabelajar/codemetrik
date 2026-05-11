@@ -32,8 +32,15 @@ type HistoryItem = {
   avg_maintainability: number
 }
 
+type HistoryDetail = {
+  id: number
+  analyzed_at: string
+  project_path: string
+  result: AnalysisResult
+}
+
 type InputMode = 'folder' | 'file' | 'snippet'
-type SnippetLanguage = 'python' | 'javascript' | 'typescript'
+type SnippetLanguage = 'python' | 'javascript' | 'typescript' | 'php'
 
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
 type DialogOpen = (options?: Record<string, unknown>) => Promise<string | string[] | null>
@@ -90,11 +97,12 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [history, setHistory] = useState<HistoryItem[]>([])
+  const [historyDetail, setHistoryDetail] = useState<HistoryDetail | null>(null)
 
   const loadHistory = async () => {
     try {
       await ensureTauriApi()
-      const data = await invokeRef!<HistoryItem[]>('get_analysis_history', { limit: 12 })
+      const data = await invokeRef!<HistoryItem[]>('get_analysis_history', { limit: 30 })
       setHistory(data)
     } catch {
       setHistory([])
@@ -105,10 +113,12 @@ function App() {
     void loadHistory()
   }, [])
 
+  const displayedResult = historyDetail?.result ?? result
+
   const topFiles = useMemo(() => {
-    if (!result) return []
-    return [...result.files].sort((a, b) => b.complexity_score - a.complexity_score).slice(0, 10)
-  }, [result])
+    if (!displayedResult) return []
+    return [...displayedResult.files].sort((a, b) => b.complexity_score - a.complexity_score).slice(0, 10)
+  }, [displayedResult])
 
   const trend = useMemo(() => [...history].reverse(), [history])
   const maxComplexity = useMemo(() => Math.max(...trend.map((item) => item.avg_complexity), 1), [trend])
@@ -133,7 +143,7 @@ function App() {
       const selected = await dialogOpenRef!({
         directory: false,
         multiple: false,
-        filters: [{ name: 'Source', extensions: ['py', 'js', 'ts'] }],
+        filters: [{ name: 'Source', extensions: ['py', 'js', 'ts', 'php'] }],
       })
       if (selected && typeof selected === 'string') {
         setTargetPath(selected)
@@ -148,6 +158,7 @@ function App() {
   const onAnalyze = async () => {
     setLoading(true)
     setError(null)
+    setHistoryDetail(null)
 
     try {
       await ensureTauriApi()
@@ -184,12 +195,50 @@ function App() {
     }
   }
 
+  const onViewHistoryDetail = async (id: number) => {
+    setError(null)
+    try {
+      await ensureTauriApi()
+      const detail = await invokeRef!<HistoryDetail>('get_history_detail', { id })
+      setHistoryDetail(detail)
+      setResult(null)
+    } catch (err) {
+      setError(formatTauriError(err))
+    }
+  }
+
+  const onDeleteHistory = async (id: number) => {
+    setError(null)
+    try {
+      await ensureTauriApi()
+      await invokeRef!('delete_history_item', { id })
+      if (historyDetail?.id === id) {
+        setHistoryDetail(null)
+      }
+      await loadHistory()
+    } catch (err) {
+      setError(formatTauriError(err))
+    }
+  }
+
+  const onClearHistory = async () => {
+    setError(null)
+    try {
+      await ensureTauriApi()
+      await invokeRef!('clear_history')
+      setHistoryDetail(null)
+      await loadHistory()
+    } catch (err) {
+      setError(formatTauriError(err))
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="hero">
         <p className="eyebrow">Code Quality Desktop Toolkit</p>
         <h1>CodeMetric Studio</h1>
-        <p className="lead">Analyze per folder, single file, atau snippet dengan tampilan ringkas dan fokus.</p>
+        <p className="lead">Analyze per folder, single file, snippet, plus history detail & delete.</p>
       </header>
 
       <section className="surface">
@@ -221,6 +270,7 @@ function App() {
                 <option value="python">Python</option>
                 <option value="javascript">JavaScript</option>
                 <option value="typescript">TypeScript</option>
+                <option value="php">PHP</option>
               </select>
               <button type="button" className="primary" onClick={onAnalyze} disabled={loading}>{loading ? 'Analyzing...' : 'Analyze Snippet'}</button>
             </div>
@@ -233,7 +283,10 @@ function App() {
 
       <section className="grid">
         <article className="surface">
-          <h2>Trend</h2>
+          <div className="history-head">
+            <h2>History</h2>
+            <button type="button" className="danger" onClick={onClearHistory}>Clear All</button>
+          </div>
           {trend.length === 0 ? (
             <p className="muted">No history yet.</p>
           ) : (
@@ -248,23 +301,27 @@ function App() {
                     <div className="bar complexity" style={{ width: `${(item.avg_complexity / maxComplexity) * 100}%` }} />
                     <div className="bar maintainability" style={{ width: `${Math.max(item.avg_maintainability, 2)}%` }} />
                   </div>
+                  <div className="history-actions">
+                    <button type="button" className="ghost small" onClick={() => onViewHistoryDetail(item.id)}>Detail</button>
+                    <button type="button" className="danger small" onClick={() => onDeleteHistory(item.id)}>Delete</button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </article>
 
-        {result ? (
+        {displayedResult ? (
           <>
             <article className="surface stats">
-              <h2>Summary</h2>
+              <h2>{historyDetail ? `History Detail #${historyDetail.id}` : 'Summary'}</h2>
               <div className="stats-grid">
-                <div><label>Scanned Files</label><strong>{result.summary.scanned_files}</strong></div>
-                <div><label>Total LOC</label><strong>{result.summary.total_loc}</strong></div>
-                <div><label>Total Functions</label><strong>{result.summary.total_functions}</strong></div>
-                <div><label>Avg Complexity</label><strong>{result.summary.avg_complexity.toFixed(2)}</strong></div>
-                <div><label>Avg Maintainability</label><strong>{result.summary.avg_maintainability.toFixed(2)}</strong></div>
-                <div><label>Most Complex File</label><strong>{result.summary.most_complex_file || '-'}</strong></div>
+                <div><label>Scanned Files</label><strong>{displayedResult.summary.scanned_files}</strong></div>
+                <div><label>Total LOC</label><strong>{displayedResult.summary.total_loc}</strong></div>
+                <div><label>Total Functions</label><strong>{displayedResult.summary.total_functions}</strong></div>
+                <div><label>Avg Complexity</label><strong>{displayedResult.summary.avg_complexity.toFixed(2)}</strong></div>
+                <div><label>Avg Maintainability</label><strong>{displayedResult.summary.avg_maintainability.toFixed(2)}</strong></div>
+                <div><label>Most Complex File</label><strong>{displayedResult.summary.most_complex_file || '-'}</strong></div>
               </div>
             </article>
 
