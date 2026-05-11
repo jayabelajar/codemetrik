@@ -3,6 +3,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 from typing import Dict, List, Tuple
 
 import lizard
@@ -12,6 +13,7 @@ from radon.raw import analyze as raw_analyze
 
 SUPPORTED_EXTENSIONS = {".py", ".js", ".ts"}
 SKIP_DIRS = {"node_modules", ".git", "dist", "build", ".venv", "venv"}
+LANG_TO_EXT = {"python": ".py", "javascript": ".js", "typescript": ".ts"}
 
 
 def find_source_files(root: str) -> List[str]:
@@ -40,7 +42,6 @@ def py_metrics(content: str) -> Tuple[int, int, float]:
     volume = float(getattr(getattr(halstead, "total", None), "volume", 0.0) or 0.0)
     loc = max(raw.loc, 1)
 
-    # Maintainability Index formula (radon-compatible baseline, clamped 0-100)
     mi = 171 - 5.2 * math.log(max(volume, 1)) - 0.23 * complexity - 16.2 * math.log(loc)
     mi = max(0.0, min(100.0, mi * 100 / 171))
     return complexity, function_count, round(mi, 2)
@@ -54,7 +55,6 @@ def generic_metrics(path: str, loc: int) -> Tuple[int, int, float]:
     if function_count == 0:
         complexity = max(complexity, 1)
 
-    # Proxy maintainability score for non-Python files
     penalty = complexity * 1.6 + max(loc - 250, 0) * 0.04 + function_count * 0.4
     mi = max(0.0, min(100.0, 100.0 - penalty))
     return complexity, function_count, round(mi, 2)
@@ -79,19 +79,8 @@ def analyze_file(path: str, root: str) -> Dict:
     }
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: analyze.py <project_path>", file=sys.stderr)
-        return 1
-
-    project_path = os.path.abspath(sys.argv[1])
-    if not os.path.isdir(project_path):
-        print("Path project tidak ditemukan atau bukan folder.", file=sys.stderr)
-        return 1
-
-    files = [analyze_file(path, project_path) for path in find_source_files(project_path)]
+def build_payload(files: List[Dict]) -> Dict:
     files.sort(key=lambda x: x["complexity_score"], reverse=True)
-
     total_loc = sum(item["loc"] for item in files)
     total_functions = sum(item["function_count"] for item in files)
     avg_complexity = (sum(item["complexity_score"] for item in files) / len(files)) if files else 0.0
@@ -99,7 +88,7 @@ def main() -> int:
         sum(item["maintainability_index"] for item in files) / len(files)
     ) if files else 0.0
 
-    payload = {
+    return {
         "summary": {
             "scanned_files": len(files),
             "total_loc": total_loc,
@@ -110,6 +99,59 @@ def main() -> int:
         },
         "files": files,
     }
+
+
+def analyze_path(target_path: str) -> Dict:
+    abs_path = os.path.abspath(target_path)
+    if os.path.isdir(abs_path):
+        files = [analyze_file(path, abs_path) for path in find_source_files(abs_path)]
+        return build_payload(files)
+
+    if os.path.isfile(abs_path):
+        ext = os.path.splitext(abs_path)[1].lower()
+        if ext not in SUPPORTED_EXTENSIONS:
+            raise ValueError("File extension tidak didukung. Gunakan .py, .js, atau .ts")
+        root = os.path.dirname(abs_path)
+        return build_payload([analyze_file(abs_path, root)])
+
+    raise ValueError("Path tidak ditemukan")
+
+
+def analyze_snippet(language: str, code: str) -> Dict:
+    ext = LANG_TO_EXT.get(language.lower())
+    if not ext:
+        raise ValueError("Language snippet tidak didukung")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, f"snippet{ext}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(code)
+        payload = build_payload([analyze_file(path, tmpdir)])
+        if payload["files"]:
+            payload["files"][0]["file"] = f"snippet{ext}"
+            payload["summary"]["most_complex_file"] = f"snippet{ext}"
+        return payload
+
+
+def main() -> int:
+    if len(sys.argv) < 3:
+        print("Usage: analyze.py --path <path> | --snippet <language>", file=sys.stderr)
+        return 1
+
+    mode = sys.argv[1]
+
+    try:
+        if mode == "--path":
+            payload = analyze_path(sys.argv[2])
+        elif mode == "--snippet":
+            language = sys.argv[2]
+            code = sys.stdin.read()
+            payload = analyze_snippet(language, code)
+        else:
+            raise ValueError("Mode tidak valid")
+    except Exception as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     print(json.dumps(payload))
     return 0

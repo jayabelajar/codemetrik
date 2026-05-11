@@ -67,13 +67,13 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
     Ok(conn)
 }
 
-fn save_history(app: &AppHandle, project_path: &str, result: &AnalysisResult) -> Result<(), String> {
+fn save_history(app: &AppHandle, source_label: &str, result: &AnalysisResult) -> Result<(), String> {
     let conn = open_db(app)?;
     conn.execute(
         "INSERT INTO analysis_history (project_path, scanned_files, avg_complexity, avg_maintainability)
          VALUES (?1, ?2, ?3, ?4)",
         params![
-            project_path,
+            source_label,
             result.summary.scanned_files,
             result.summary.avg_complexity,
             result.summary.avg_maintainability
@@ -83,19 +83,20 @@ fn save_history(app: &AppHandle, project_path: &str, result: &AnalysisResult) ->
     Ok(())
 }
 
-#[tauri::command]
-fn analyze_project(app: AppHandle, project_path: String) -> Result<AnalysisResult, String> {
+fn run_analyzer_path(path: &str) -> Result<AnalysisResult, String> {
     let analyzer_path = PathBuf::from("analyzer").join("analyze.py");
 
     let output = Command::new("python")
-        .arg(analyzer_path)
-        .arg(&project_path)
+        .arg(&analyzer_path)
+        .arg("--path")
+        .arg(path)
         .output()
         .or_else(|_| {
             Command::new("py")
                 .arg("-3")
                 .arg("analyzer/analyze.py")
-                .arg(&project_path)
+                .arg("--path")
+                .arg(path)
                 .output()
         })
         .map_err(|e| format!("Gagal menjalankan Python analyzer: {e}"))?;
@@ -106,10 +107,68 @@ fn analyze_project(app: AppHandle, project_path: String) -> Result<AnalysisResul
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let result = serde_json::from_str::<AnalysisResult>(&stdout)
-        .map_err(|e| format!("Output analyzer tidak valid JSON: {e}"))?;
+    serde_json::from_str::<AnalysisResult>(&stdout)
+        .map_err(|e| format!("Output analyzer tidak valid JSON: {e}"))
+}
 
-    save_history(&app, &project_path, &result)?;
+fn run_analyzer_snippet(language: &str, code: &str) -> Result<AnalysisResult, String> {
+    let analyzer_path = PathBuf::from("analyzer").join("analyze.py");
+
+    let output = Command::new("python")
+        .arg(&analyzer_path)
+        .arg("--snippet")
+        .arg(language)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .or_else(|_| {
+            Command::new("py")
+                .arg("-3")
+                .arg("analyzer/analyze.py")
+                .arg("--snippet")
+                .arg(language)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+        })
+        .map_err(|e| format!("Gagal menjalankan Python analyzer: {e}"))?;
+
+    let mut child = output;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        stdin
+            .write_all(code.as_bytes())
+            .map_err(|e| format!("Gagal kirim snippet ke analyzer: {e}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Gagal menunggu proses analyzer: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("Analyzer error: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str::<AnalysisResult>(&stdout)
+        .map_err(|e| format!("Output analyzer tidak valid JSON: {e}"))
+}
+
+#[tauri::command]
+fn analyze_path(app: AppHandle, target_path: String) -> Result<AnalysisResult, String> {
+    let result = run_analyzer_path(&target_path)?;
+    save_history(&app, &target_path, &result)?;
+    Ok(result)
+}
+
+#[tauri::command]
+fn analyze_snippet(app: AppHandle, language: String, code: String) -> Result<AnalysisResult, String> {
+    let result = run_analyzer_snippet(&language, &code)?;
+    let source = format!("snippet:{language}");
+    save_history(&app, &source, &result)?;
     Ok(result)
 }
 
@@ -152,7 +211,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![analyze_project, get_analysis_history])
+        .invoke_handler(tauri::generate_handler![
+            analyze_path,
+            analyze_snippet,
+            get_analysis_history
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
