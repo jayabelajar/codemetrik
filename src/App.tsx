@@ -4,9 +4,12 @@ import './App.css'
 import { AppSidebar } from './components/layout/AppSidebar'
 import { MainContent } from './components/layout/MainContent'
 import { TopNavbar } from './components/layout/TopNavbar'
+import { OnboardingModal } from './components/onboarding/OnboardingModal'
 import { analyzePath, analyzeSnippet, clearHistory, deleteHistoryItem, formatTauriError, getHistory, getHistoryDetail, pickFile, pickFolder, saveBytes } from './lib/tauriClient'
 import type { AnalysisResult, FunctionMetric, HistoryDetail, HistoryItem, InputMode, SnippetLanguage } from './types/analysis'
 import { clampPage, getEffectiveSelectedFunctionKey } from './utils/appState'
+
+const ONBOARDING_KEY = 'codemetrik_onboarding_seen_v1'
 
 function App() {
   const [inputMode, setInputMode] = useState<InputMode>('folder')
@@ -21,6 +24,14 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1)
   const [functionPage, setFunctionPage] = useState(1)
   const [selectedFunctionKey, setSelectedFunctionKey] = useState('')
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return window.localStorage.getItem(ONBOARDING_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
   const pageSize = 10
 
   const displayedResult = historyDetail?.result ?? result
@@ -210,6 +221,15 @@ function App() {
     }
   }
 
+  const closeOnboarding = () => {
+    try {
+      window.localStorage.setItem(ONBOARDING_KEY, '1')
+    } catch {
+      // Ignore storage failure and close UI anyway.
+    }
+    setShowOnboarding(false)
+  }
+
   return (
     <div className="h-screen bg-[#F8FAFC] text-slate-900 selection:bg-indigo-100 overflow-hidden flex flex-col">
       <TopNavbar />
@@ -252,11 +272,13 @@ function App() {
         />
       </div>
       <footer className="h-9 border-t border-slate-200 bg-white/90 px-6 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
-        <span>Copyright © {new Date().getFullYear()} CodeMetric Studio</span>
+        <span>Copyright &copy; {new Date().getFullYear()} CodeMetric Studio</span>
         <span>Built by Jayadev</span>
       </footer>
+      <OnboardingModal open={showOnboarding} onClose={closeOnboarding} />
     </div>
   )
 }
 
 export default App
+
