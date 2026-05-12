@@ -11,7 +11,6 @@ type MainContentProps = {
   pagedFunctions: FunctionMetric[]
   selectedFunctionKey: string
   setSelectedFunctionKey: (value: string) => void
-  onExportExcel: () => Promise<void>
   onExportCsv: () => Promise<void>
   onExportPdf: () => Promise<void>
   onExportJson: () => Promise<void>
@@ -82,7 +81,7 @@ function buildAcademicLayout(flowNodes: { id: string; label: string }[], flowEdg
 export function MainContent(props: MainContentProps) {
   const {
     displayedResult, historyDetail, targetPath, pagedFunctions, selectedFunctionKey, setSelectedFunctionKey,
-    onExportExcel, onExportCsv, onExportPdf, onExportJson, pagedFiles, currentPage, totalPages, setCurrentPage, allFunctions,
+    onExportCsv, onExportPdf, onExportJson, pagedFiles, currentPage, totalPages, setCurrentPage, allFunctions,
   } = props
 
   const [activeTab, setActiveTab] = useState<MetricTab>('overview')
@@ -147,7 +146,6 @@ export function MainContent(props: MainContentProps) {
             <p className="text-sm text-slate-500 font-medium flex items-center gap-2 mt-1"><FolderOpen size={14} /> {historyDetail?.project_path || targetPath || 'Code Snippet'}</p>
           </div>
           <div className="flex gap-2 bg-white p-1.5 border border-slate-200 rounded-xl shadow-sm shrink-0 self-start sm:self-center">
-            <button onClick={() => void onExportExcel()} className="p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export to Excel"><FileSpreadsheet size={16} /><span className="hidden md:inline">Excel</span></button>
             <button onClick={() => void onExportCsv()} className="p-2 text-slate-600 hover:bg-cyan-50 hover:text-cyan-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export CSV"><FileSpreadsheet size={16} /><span className="hidden md:inline">CSV</span></button>
             <button onClick={() => void onExportPdf()} className="p-2 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export PDF"><FileDown size={16} /><span className="hidden md:inline">PDF</span></button>
             <button onClick={() => void onExportJson()} className="p-2 text-slate-600 hover:bg-amber-50 hover:text-amber-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export JSON"><FileJson2 size={16} /><span className="hidden md:inline">JSON</span></button>
@@ -324,6 +322,71 @@ export function MainContent(props: MainContentProps) {
             </div>
           </div>
         )}
+
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+            <h3 className="font-bold text-slate-900 text-sm">Metric Legend</h3>
+            <p className="text-xs text-slate-500 mt-1">Penjelasan simbol dan rumus yang dipakai di tabel Cyclomatic dan Halstead.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="bg-slate-50/50 text-slate-500 text-xs font-bold border-b border-slate-200">
+                  <th className="py-3 px-4">SIMBOL</th>
+                  <th className="py-3 px-4">ARTI</th>
+                  <th className="py-3 px-4">CATATAN / RUMUS</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">V(G)</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Cyclomatic Complexity</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">Jumlah jalur independen logika program.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">E, N, P</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Edges, Nodes, Connected Components</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">Dipakai di rumus McCabe: `V(G) = E - N + 2P`.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">Predicate</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Titik keputusan logika</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">Contoh: `if`, `else if`, `for`, `while`, `case`, operator boolean.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">n1 / n2</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Operator unik / Operand unik</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">Ukuran ragam simbol yang berbeda di kode.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">N1 / N2</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Total operator / Total operand</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">Frekuensi kemunculan operator dan operand.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">Volume</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Halstead Volume</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">`Volume = (N1 + N2) * log2(n1 + n2)`.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">Difficulty</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Halstead Difficulty</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">`Difficulty = (n1 / 2) * (N2 / n2)`.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">Effort</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Perkiraan effort implementasi</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">`Effort = Difficulty * Volume`.</td>
+                </tr>
+                <tr>
+                  <td className="py-3 px-4 text-xs font-bold text-slate-700">MI</td>
+                  <td className="py-3 px-4 text-xs text-slate-700">Maintainability Index</td>
+                  <td className="py-3 px-4 text-xs text-slate-500">Skor maintainability (0-100), makin tinggi makin mudah dirawat.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </main>
   )

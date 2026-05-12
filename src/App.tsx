@@ -6,7 +6,7 @@ import { MainContent } from './components/layout/MainContent'
 import { TopNavbar } from './components/layout/TopNavbar'
 import { analyzePath, analyzeSnippet, clearHistory, deleteHistoryItem, formatTauriError, getHistory, getHistoryDetail, pickFile, pickFolder, saveBytes } from './lib/tauriClient'
 import type { AnalysisResult, FunctionMetric, HistoryDetail, HistoryItem, InputMode, SnippetLanguage } from './types/analysis'
-import { buildCsvBytes, buildExcelBytes, buildJsonBytes, buildPdfBytes } from './utils/exporters'
+import { clampPage, getEffectiveSelectedFunctionKey } from './utils/appState'
 
 function App() {
   const [inputMode, setInputMode] = useState<InputMode>('folder')
@@ -42,44 +42,56 @@ function App() {
     return flattened.sort((a, b) => b.vg - a.vg)
   }, [displayedResult, topFunctions])
 
-  useEffect(() => {
-    setCurrentPage(1)
-    setFunctionPage(1)
-  }, [displayedResult])
-
-  useEffect(() => {
-    if (allFunctions.length > 0) {
-      setSelectedFunctionKey(`${allFunctions[0].file}::${allFunctions[0].name}`)
-    } else {
-      setSelectedFunctionKey('')
-    }
-  }, [allFunctions])
-
   const totalPages = useMemo(() => Math.max(1, Math.ceil(sortedFiles.length / pageSize)), [sortedFiles.length])
-  const pagedFiles = useMemo(() => sortedFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize), [sortedFiles, currentPage])
-  const pagedFunctions = useMemo(() => allFunctions.slice((functionPage - 1) * pageSize, functionPage * pageSize), [allFunctions, functionPage])
+  const functionTotalPages = useMemo(() => Math.max(1, Math.ceil(allFunctions.length / pageSize)), [allFunctions.length])
+  const safeCurrentPage = useMemo(() => clampPage(currentPage, totalPages), [currentPage, totalPages])
+  const safeFunctionPage = useMemo(() => clampPage(functionPage, functionTotalPages), [functionPage, functionTotalPages])
+  const pagedFiles = useMemo(
+    () => sortedFiles.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize),
+    [sortedFiles, safeCurrentPage],
+  )
+  const pagedFunctions = useMemo(
+    () => allFunctions.slice((safeFunctionPage - 1) * pageSize, safeFunctionPage * pageSize),
+    [allFunctions, safeFunctionPage],
+  )
+  const effectiveSelectedFunctionKey = useMemo(() => {
+    return getEffectiveSelectedFunctionKey(allFunctions, selectedFunctionKey)
+  }, [allFunctions, selectedFunctionKey])
 
-  const loadHistory = async () => {
-    try {
-      const data = await getHistory(30)
-      setHistory(data)
-    } catch {
-      setHistory([])
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const data = await getHistory(30)
+        if (!cancelled) setHistory(data)
+      } catch {
+        if (!cancelled) setHistory([])
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
-  }
-
-  useEffect(() => { void loadHistory() }, [])
+  }, [])
 
   const onAnalyze = async () => {
     setLoading(true)
     setError(null)
     setHistoryDetail(null)
+    setCurrentPage(1)
+    setFunctionPage(1)
+    setSelectedFunctionKey('')
     try {
       const data = inputMode === 'snippet'
         ? await analyzeSnippet(snippetLanguage, snippetCode)
         : await analyzePath(targetPath)
       setResult(data)
-      await loadHistory()
+      try {
+        const refreshed = await getHistory(30)
+        setHistory(refreshed)
+      } catch {
+        setHistory([])
+      }
     } catch (err) {
       setResult(null)
       setError(formatTauriError(err))
@@ -115,6 +127,9 @@ function App() {
   const onViewHistoryDetail = async (id: number) => {
     try {
       const detail = await getHistoryDetail(id)
+      setCurrentPage(1)
+      setFunctionPage(1)
+      setSelectedFunctionKey('')
       setHistoryDetail(detail)
       setResult(null)
     } catch (err) {
@@ -126,7 +141,12 @@ function App() {
     try {
       await deleteHistoryItem(id)
       if (historyDetail?.id === id) setHistoryDetail(null)
-      await loadHistory()
+      try {
+        const refreshed = await getHistory(30)
+        setHistory(refreshed)
+      } catch {
+        setHistory([])
+      }
     } catch (err) {
       setError(formatTauriError(err))
     }
@@ -136,22 +156,7 @@ function App() {
     try {
       await clearHistory()
       setHistoryDetail(null)
-      await loadHistory()
-    } catch (err) {
-      setError(formatTauriError(err))
-    }
-  }
-
-  const onExportExcel = async () => {
-    if (!displayedResult) return
-    try {
-      const context = {
-        source: historyDetail?.project_path || targetPath || 'snippet',
-        generatedAt: new Date().toISOString(),
-        analyzerVersion: 'codemetrik-v1',
-      }
-      const bytes = buildExcelBytes(displayedResult, context)
-      await saveBytes(`codemetrik-${Date.now()}.xlsx`, [{ name: 'Excel', extensions: ['xlsx'] }], bytes)
+      setHistory([])
     } catch (err) {
       setError(formatTauriError(err))
     }
@@ -165,6 +170,7 @@ function App() {
         generatedAt: new Date().toISOString(),
         analyzerVersion: 'codemetrik-v1',
       }
+      const { buildJsonBytes } = await import('./utils/exporters')
       const bytes = buildJsonBytes(displayedResult, context)
       await saveBytes(`codemetrik-${Date.now()}.json`, [{ name: 'JSON', extensions: ['json'] }], bytes)
     } catch (err) {
@@ -180,6 +186,7 @@ function App() {
         generatedAt: new Date().toISOString(),
         analyzerVersion: 'codemetrik-v1',
       }
+      const { buildCsvBytes } = await import('./utils/exporters')
       const bytes = buildCsvBytes(displayedResult, context)
       await saveBytes(`codemetrik-${Date.now()}.csv`, [{ name: 'CSV', extensions: ['csv'] }], bytes)
     } catch (err) {
@@ -195,6 +202,7 @@ function App() {
         generatedAt: new Date().toISOString(),
         analyzerVersion: 'codemetrik-v1',
       }
+      const { buildPdfBytes } = await import('./utils/exporters')
       const bytes = buildPdfBytes(displayedResult, context)
       await saveBytes(`codemetrik-${Date.now()}.pdf`, [{ name: 'PDF', extensions: ['pdf'] }], bytes)
     } catch (err) {
@@ -231,19 +239,22 @@ function App() {
           historyDetail={historyDetail}
           targetPath={targetPath}
           pagedFunctions={pagedFunctions}
-          selectedFunctionKey={selectedFunctionKey}
+          selectedFunctionKey={effectiveSelectedFunctionKey}
           setSelectedFunctionKey={setSelectedFunctionKey}
-          onExportExcel={onExportExcel}
           onExportCsv={onExportCsv}
           onExportPdf={onExportPdf}
           onExportJson={onExportJson}
           pagedFiles={pagedFiles}
-          currentPage={currentPage}
+          currentPage={safeCurrentPage}
           totalPages={totalPages}
           setCurrentPage={setCurrentPage}
           allFunctions={allFunctions}
         />
       </div>
+      <footer className="h-9 border-t border-slate-200 bg-white/90 px-6 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
+        <span>Copyright © {new Date().getFullYear()} CodeMetric Studio</span>
+        <span>Built by Jayadev</span>
+      </footer>
     </div>
   )
 }
