@@ -370,7 +370,20 @@ def js_metrics(path: str, rel_file: str, loc: int, content: str) -> Tuple[int, i
     return complexity, function_count, round(mi, 2), halstead_detail, functions
 
 
-def php_metrics(path: str, loc: int, rel_file: str) -> Tuple[int, int, float, Dict, List[Dict]]:
+def classify_php_parse_issue(message: str) -> str:
+    msg = message.lower()
+    compatibility_hints = [
+        "unexpected token",
+        "unexpected",
+        "syntax error",
+        "parse error",
+    ]
+    if any(hint in msg for hint in compatibility_hints):
+        return "ast_unavailable"
+    return "analysis_unavailable"
+
+
+def php_metrics(path: str, loc: int, rel_file: str) -> Tuple[int, int, float, Dict, List[Dict], Optional[Dict]]:
     helper_path = os.path.join(os.path.dirname(__file__), "php_metrics.php")
     output = subprocess.run(["php", helper_path, path], check=True, capture_output=True, text=True)
     parsed = json.loads(output.stdout)
@@ -423,26 +436,36 @@ def php_metrics(path: str, loc: int, rel_file: str) -> Tuple[int, int, float, Di
         "effort": round(effort, 2),
     }
 
-    return complexity, function_count, round(mi, 2), halstead_detail, functions
+    parse_error = parsed.get("parse_error")
+    parse_info = None
+    if isinstance(parse_error, str) and parse_error.strip():
+        parse_info = {
+            "parse_fallback": True,
+            "parse_error": parse_error.strip(),
+            "parse_issue_type": classify_php_parse_issue(parse_error),
+        }
+
+    return complexity, function_count, round(mi, 2), halstead_detail, functions, parse_info
 
 
 def analyze_file(path: str, root: str) -> Dict:
     content = read_file(path)
-    raw = raw_analyze(content)
-    loc = max(raw.loc, 1)
+    loc = safe_loc(content)
     ext = os.path.splitext(path)[1].lower()
     rel_file = os.path.relpath(path, root).replace("\\", "/")
 
+    parse_info: Dict = {}
     if ext == ".py":
         complexity, function_count, mi, halstead_detail, functions = py_metrics(content, rel_file, loc)
     elif ext == ".php":
-        complexity, function_count, mi, halstead_detail, functions = php_metrics(path, loc, rel_file)
+        complexity, function_count, mi, halstead_detail, functions, php_parse_info = php_metrics(path, loc, rel_file)
+        parse_info = php_parse_info or {}
     elif ext == ".js":
         complexity, function_count, mi, halstead_detail, functions = js_metrics(path, rel_file, loc, content)
     else:
         raise ValueError("Bahasa tidak didukung. Fokus analyzer: .py, .js, .php")
 
-    return {
+    result = {
         "file": rel_file,
         "file_path": rel_file,
         "loc": loc,
@@ -457,6 +480,8 @@ def analyze_file(path: str, root: str) -> Dict:
         "halstead": to_ideal_halstead(halstead_detail),
         "functions": functions,
     }
+    result.update(parse_info)
+    return result
 
 
 def build_recommendations(files: List[Dict], functions: List[Dict], avg_mi: float) -> List[str]:
@@ -551,12 +576,20 @@ def analyze_path(target_path: str) -> Dict:
                 fallback_files.append(f"{rel} ({exc})")
 
         payload = build_payload(files)
+        parse_estimated_files = [item["file"] for item in files if item.get("parse_fallback")]
         if fallback_files:
             payload["recommendations"].insert(
                 0,
-                f"{len(fallback_files)} file mengalami syntax/parse error, dihitung dengan fallback estimator: "
+                f"{len(fallback_files)} file gagal dianalisis penuh, diproses dengan estimator: "
                 + "; ".join(fallback_files[:5])
                 + ("; ..." if len(fallback_files) > 5 else ""),
+            )
+        elif parse_estimated_files:
+            payload["recommendations"].insert(
+                0,
+                f"{len(parse_estimated_files)} file diproses dalam mode estimasi (AST parser tidak tersedia/kompatibel): "
+                + "; ".join(parse_estimated_files[:5])
+                + ("; ..." if len(parse_estimated_files) > 5 else ""),
             )
         return payload
 
@@ -566,7 +599,13 @@ def analyze_path(target_path: str) -> Dict:
             raise ValueError("File extension tidak didukung. Gunakan .py, .js, atau .php")
         root = os.path.dirname(abs_path)
         try:
-            return build_payload([analyze_file(abs_path, root)])
+            payload = build_payload([analyze_file(abs_path, root)])
+            if payload["files"] and payload["files"][0].get("parse_fallback"):
+                payload["recommendations"].insert(
+                    0,
+                    f"File '{os.path.basename(abs_path)}' diproses dalam mode estimasi (AST parser tidak tersedia/kompatibel).",
+                )
+            return payload
         except Exception as exc:
             filename = os.path.basename(abs_path)
             content = read_file(abs_path)
@@ -575,7 +614,7 @@ def analyze_path(target_path: str) -> Dict:
             payload = build_payload([fallback_metrics(content, filename, ext, loc, str(exc))])
             payload["recommendations"].insert(
                 0,
-                f"File '{filename}' mengalami syntax/parse error, dihitung dengan fallback estimator: {exc}",
+                f"File '{filename}' gagal dianalisis penuh, diproses dengan estimator: {exc}",
             )
             return payload
 
@@ -594,7 +633,12 @@ def analyze_snippet(language: str, code: str) -> Dict:
         try:
             payload = build_payload([analyze_file(path, tmpdir)])
         except Exception as exc:
-            raise ValueError(f"Syntax/parse error pada snippet {language}: {exc}") from exc
+            raise ValueError(f"Snippet {language} gagal dianalisis penuh: {exc}") from exc
+        if payload["files"] and payload["files"][0].get("parse_fallback"):
+            payload["recommendations"].insert(
+                0,
+                "Snippet diproses dalam mode estimasi karena AST parser tidak tersedia/kompatibel.",
+            )
         if payload["files"]:
             payload["files"][0]["file"] = f"snippet{ext}"
             payload["summary"]["most_complex_file"] = f"snippet{ext}"

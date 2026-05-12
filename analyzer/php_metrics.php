@@ -38,6 +38,28 @@ function shortClassName(Node $node): string {
     return end($parts) ?: 'Node';
 }
 
+function cfg_stmt_label(Node $stmt): string {
+    if ($stmt instanceof Stmt\Expression) {
+        $expr = $stmt->expr;
+        if ($expr instanceof Expr\Assign || $expr instanceof Expr\AssignOp) {
+            return 'assign';
+        }
+        if ($expr instanceof Expr\FuncCall || $expr instanceof Expr\MethodCall || $expr instanceof Expr\StaticCall) {
+            return 'call';
+        }
+        if ($expr instanceof Expr\Throw_) {
+            return 'throw';
+        }
+        return 'expression';
+    }
+    if ($stmt instanceof Stmt\Return_) return 'return';
+    if ($stmt instanceof Stmt\Break_) return 'break';
+    if ($stmt instanceof Stmt\Continue_) return 'continue';
+    if ($stmt instanceof Stmt\Echo_) return 'echo';
+    if ($stmt instanceof Stmt\Nop) return 'noop';
+    return strtolower(shortClassName($stmt));
+}
+
 function countDecisionNodes(Node $node): int {
     $count = 0;
     if ($node instanceof Stmt\If_) {
@@ -244,7 +266,7 @@ function cfg_build_stmt(Node $stmt, array $incoming, array &$nodes, array &$edge
         return cfg_build_trycatch($stmt, $incoming, $nodes, $edges, $counter);
     }
 
-    $label = strtolower(shortClassName($stmt));
+    $label = cfg_stmt_label($stmt);
     $node = cfg_new_node($nodes, $counter, $label);
     cfg_connect($edges, $incoming, $node, 'next');
     return [$node];
@@ -325,11 +347,12 @@ function build_function_metrics(array $nodes): array {
 }
 
 $parser = (new ParserFactory())->createForNewestSupportedVersion();
+$parseError = null;
 try {
     $ast = $parser->parse($code);
 } catch (Throwable $e) {
-    fwrite(STDERR, "PHP AST parse failed: " . $e->getMessage() . "\n");
-    exit(1);
+    $ast = [];
+    $parseError = "PHP AST parse failed: " . $e->getMessage();
 }
 
 $functions = build_function_metrics($ast ?? []);
@@ -346,7 +369,14 @@ if ($functionCount > 0) {
     $complexity = trim($code) === '' ? 0 : (1 + $scriptDecisions);
 }
 
-$tokens = token_get_all($code, TOKEN_PARSE);
+try {
+    $tokens = token_get_all($code, TOKEN_PARSE);
+} catch (Throwable $e) {
+    if ($parseError === null) {
+        $parseError = "TOKEN_PARSE failed: " . $e->getMessage();
+    }
+    $tokens = token_get_all($code);
+}
 $operatorTokenIds = [
     T_IF, T_ELSEIF, T_ELSE, T_SWITCH, T_CASE, T_DEFAULT, T_MATCH,
     T_WHILE, T_DO, T_FOR, T_FOREACH, T_BREAK, T_CONTINUE,
@@ -426,6 +456,7 @@ $payload = [
     'halstead_volume' => round($volume, 2),
     'halstead_difficulty' => round($difficulty, 2),
     'halstead_effort' => round($effort, 2),
+    'parse_error' => $parseError,
 ];
 
 echo json_encode($payload, JSON_UNESCAPED_SLASHES);

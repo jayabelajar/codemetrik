@@ -12,6 +12,7 @@ type MainContentProps = {
   selectedFunctionKey: string
   setSelectedFunctionKey: (value: string) => void
   onExportExcel: () => Promise<void>
+  onExportCsv: () => Promise<void>
   onExportPdf: () => Promise<void>
   onExportJson: () => Promise<void>
   pagedFiles: AnalysisResult['files']
@@ -81,7 +82,7 @@ function buildAcademicLayout(flowNodes: { id: string; label: string }[], flowEdg
 export function MainContent(props: MainContentProps) {
   const {
     displayedResult, historyDetail, targetPath, pagedFunctions, selectedFunctionKey, setSelectedFunctionKey,
-    onExportExcel, onExportPdf, onExportJson, pagedFiles, currentPage, totalPages, setCurrentPage, allFunctions,
+    onExportExcel, onExportCsv, onExportPdf, onExportJson, pagedFiles, currentPage, totalPages, setCurrentPage, allFunctions,
   } = props
 
   const [activeTab, setActiveTab] = useState<MetricTab>('overview')
@@ -147,6 +148,7 @@ export function MainContent(props: MainContentProps) {
           </div>
           <div className="flex gap-2 bg-white p-1.5 border border-slate-200 rounded-xl shadow-sm shrink-0 self-start sm:self-center">
             <button onClick={() => void onExportExcel()} className="p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export to Excel"><FileSpreadsheet size={16} /><span className="hidden md:inline">Excel</span></button>
+            <button onClick={() => void onExportCsv()} className="p-2 text-slate-600 hover:bg-cyan-50 hover:text-cyan-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export CSV"><FileSpreadsheet size={16} /><span className="hidden md:inline">CSV</span></button>
             <button onClick={() => void onExportPdf()} className="p-2 text-slate-600 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export PDF"><FileDown size={16} /><span className="hidden md:inline">PDF</span></button>
             <button onClick={() => void onExportJson()} className="p-2 text-slate-600 hover:bg-amber-50 hover:text-amber-700 rounded-lg transition-all flex items-center gap-1.5 text-xs font-bold" title="Export JSON"><FileJson2 size={16} /><span className="hidden md:inline">JSON</span></button>
           </div>
