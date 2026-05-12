@@ -145,7 +145,7 @@ function App() {
   const onPickFile = async () => {
     try {
       await ensureTauriApi()
-      const selected = await dialogOpenRef!({ directory: false, multiple: false, filters: [{ name: 'Source', extensions: ['py', 'js', 'ts', 'php'] }] })
+      const selected = await dialogOpenRef!({ directory: false, multiple: false, filters: [{ name: 'Source', extensions: ['py', 'js', 'php'] }] })
       if (selected && typeof selected === 'string') {
         setTargetPath(selected)
         setInputMode('file')

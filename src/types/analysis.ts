@@ -2,13 +2,28 @@ export type FlowNode = { id: string; label: string }
 export type FlowEdge = { from: string; to: string; label: string }
 export type FlowGraph = { nodes: FlowNode[]; edges: FlowEdge[]; independent_paths: number }
 
+export type CyclomaticDetail = {
+  edge_count: number
+  node_count: number
+  connected_components: number
+  vg_formula: number
+  vg_predicate: number
+}
+
 export type FunctionMetric = {
   file: string
   name: string
+  function_name?: string
+  file_path?: string
+  start_line?: number
+  end_line?: number
   predicate_count: number
   vg: number
+  cyclomatic_complexity?: number
   complexity_category: 'Good' | 'Moderate' | 'Complex'
   flowgraph: FlowGraph
+  cyclomatic_detail?: CyclomaticDetail
+  halstead?: IdealHalsteadDetail
 }
 
 export type HalsteadDetail = {
@@ -23,8 +38,23 @@ export type HalsteadDetail = {
   effort: number
 }
 
+export type IdealHalsteadDetail = {
+  n1: number
+  n2: number
+  N1: number
+  N2: number
+  vocabulary: number
+  length: number
+  volume: number
+  difficulty: number
+  effort: number
+  time_to_program: number
+  bugs: number
+}
+
 export type FileMetric = {
   file: string
+  file_path?: string
   loc: number
   language: string
   function_count: number
@@ -34,6 +64,7 @@ export type FileMetric = {
   maintainability_index: number
   maintainability_category: string
   halstead_detail: HalsteadDetail | null
+  halstead?: IdealHalsteadDetail
   functions: FunctionMetric[]
 }
 
@@ -73,4 +104,4 @@ export type HistoryDetail = {
 }
 
 export type InputMode = 'folder' | 'file' | 'snippet'
-export type SnippetLanguage = 'python' | 'javascript' | 'typescript' | 'php'
+export type SnippetLanguage = 'python' | 'javascript' | 'php'

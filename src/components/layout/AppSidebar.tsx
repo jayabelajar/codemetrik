@@ -95,7 +95,6 @@ export function AppSidebar(props: AppSidebarProps) {
                 >
                   <option value="python">Python</option>
                   <option value="javascript">JS</option>
-                  <option value="typescript">TS</option>
                   <option value="php">PHP</option>
                 </select>
                 <button

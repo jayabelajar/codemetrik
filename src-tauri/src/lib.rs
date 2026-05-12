@@ -26,6 +26,15 @@ struct FlowGraph {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+struct CyclomaticDetail {
+    edge_count: u32,
+    node_count: u32,
+    connected_components: u32,
+    vg_formula: u32,
+    vg_predicate: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct FunctionMetric {
     file: String,
     name: String,
@@ -33,6 +42,7 @@ struct FunctionMetric {
     vg: u32,
     complexity_category: String,
     flowgraph: FlowGraph,
+    cyclomatic_detail: Option<CyclomaticDetail>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

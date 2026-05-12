@@ -289,6 +289,9 @@ function build_function_metrics(array $nodes): array {
                 }
             }
             $vg = 1 + $decisions;
+            $edgeCount = count($cfg['edges']) + 1;
+            $nodeCount = count($cfg['nodes']);
+
             $functions[] = [
                 'name' => $name,
                 'predicate_count' => max($vg - 1, 0),
@@ -297,6 +300,13 @@ function build_function_metrics(array $nodes): array {
                     'nodes' => $cfg['nodes'],
                     'edges' => $cfg['edges'],
                     'independent_paths' => $vg,
+                ],
+                'cyclomatic_detail' => [
+                    'edge_count' => $edgeCount,
+                    'node_count' => $nodeCount,
+                    'connected_components' => 1,
+                    'vg_formula' => $edgeCount - $nodeCount + 2,
+                    'vg_predicate' => 1 + max($vg - 1, 0),
                 ],
             ];
             continue;
