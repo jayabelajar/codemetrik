@@ -6,12 +6,85 @@ use std::{fs, path::PathBuf, process::Command};
 use tauri::{AppHandle, Manager};
 
 #[derive(Serialize, Deserialize, Clone)]
+struct FlowNode {
+    id: String,
+    label: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct FlowEdge {
+    from: String,
+    to: String,
+    label: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct FlowGraph {
+    nodes: Vec<FlowNode>,
+    edges: Vec<FlowEdge>,
+    independent_paths: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct FunctionMetric {
+    file: String,
+    name: String,
+    predicate_count: u32,
+    vg: u32,
+    complexity_category: String,
+    flowgraph: FlowGraph,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct HalsteadDetail {
+    n1: u32,
+    n2: u32,
+    #[serde(rename = "N1")]
+    n1_total: u32,
+    #[serde(rename = "N2")]
+    n2_total: u32,
+    program_length: u32,
+    vocabulary: u32,
+    volume: f64,
+    difficulty: f64,
+    effort: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct FileMetric {
     file: String,
     loc: u32,
+    language: String,
     function_count: u32,
     complexity_score: u32,
+    complexity_category: String,
+    predicate_count: u32,
     maintainability_index: f64,
+    maintainability_category: String,
+    halstead_detail: Option<HalsteadDetail>,
+    functions: Vec<FunctionMetric>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ComplexityDistribution {
+    #[serde(rename = "Good")]
+    good: u32,
+    #[serde(rename = "Moderate")]
+    moderate: u32,
+    #[serde(rename = "Complex")]
+    complex: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct MiDistribution {
+    #[serde(rename = "Excellent")]
+    excellent: u32,
+    #[serde(rename = "Good")]
+    good: u32,
+    #[serde(rename = "Warning")]
+    warning: u32,
+    #[serde(rename = "Poor")]
+    poor: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -21,13 +94,18 @@ struct AnalysisSummary {
     total_functions: u32,
     avg_complexity: f64,
     avg_maintainability: f64,
+    avg_halstead_volume: f64,
     most_complex_file: String,
+    complexity_distribution: ComplexityDistribution,
+    mi_distribution: MiDistribution,
+    top_complex_functions: Vec<FunctionMetric>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 struct AnalysisResult {
     summary: AnalysisSummary,
     files: Vec<FileMetric>,
+    recommendations: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -302,6 +380,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             analyze_path,
             analyze_snippet,

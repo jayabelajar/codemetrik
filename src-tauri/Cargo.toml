@@ -23,3 +23,4 @@ tauri = { version = "2.11.1", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
+tauri-plugin-fs = "2"
