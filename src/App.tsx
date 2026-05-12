@@ -264,7 +264,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 selection:bg-indigo-100 overflow-hidden flex flex-col">
+    <div className="h-screen bg-[#F8FAFC] text-slate-900 selection:bg-indigo-100 overflow-hidden flex flex-col">
       <TopNavbar />
       <div className="flex flex-1 overflow-hidden">
         <AppSidebar

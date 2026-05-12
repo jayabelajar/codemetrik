@@ -29,8 +29,8 @@ export function AppSidebar(props: AppSidebarProps) {
   } = props
 
   return (
-    <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto">
-      <div className="p-5 border-b border-slate-100 space-y-5">
+    <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 h-full min-h-0 overflow-hidden">
+      <div className="p-5 border-b border-slate-100 space-y-5 shrink-0">
         <div>
           <h2 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
             <Settings2 size={16} className="text-indigo-600" /> Analysis Source
